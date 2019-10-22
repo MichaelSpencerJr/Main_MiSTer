@@ -70,6 +70,8 @@
 #define UIO_SET_FBUF    0x2F  // Set frame buffer for HPS output
 #define UIO_WAIT_VSYNC  0x30  // Wait for VSync
 #define UIO_SET_MEMSZ   0x31  // Send memory size to the core
+#define UIO_SET_GAMMA   0x32  // Enable/disable Gamma correction
+#define UIO_SET_GAMCURV 0x33  // Set Gamma curve
 
 // codes as used by 8bit for file loading from OSD
 #define UIO_FILE_TX     0x53
@@ -208,7 +210,9 @@ int user_io_file_tx(const char* name, unsigned char index = 0, char opensave = 0
 uint32_t user_io_get_file_crc();
 int  user_io_file_mount(char *name, unsigned char index = 0, char pre = 0);
 char user_io_serial_status(serial_status_t *, uint8_t);
+char *user_io_make_filepath(const char *path, const char *filename);
 char *user_io_get_core_name();
+char *user_io_get_core_path();
 const char *user_io_get_core_name_ex();
 char has_menu();
 
@@ -275,6 +279,7 @@ char is_x86_core();
 char is_snes_core();
 char is_neogeo_core();
 
-#define HomeDir (is_minimig() ? "Amiga" : is_archie() ? "Archie" : is_menu_core() ? "Scripts" : user_io_get_core_name())
+#define HomeDir (is_menu_core() ? "Scripts" : user_io_get_core_path())
+#define CoreName (is_menu_core() ? "Scripts" : user_io_get_core_name())
 
 #endif // USER_IO_H
