@@ -210,29 +210,29 @@ static char UploadActionReplay()
 		spi8((data >> 0) & 0xff);
 		data = 0xff; // col1l, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 0x01; // right, 1 byte
+		data = 0xff; // right, 1 byte
 		spi8((data >> 0) & 0xff);
 		data = 0x00; // keyboard, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 0x01; // key, 1 byte
+		data = 0xff; // key, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = minimig_config.enable_ide ? 1 : 0; // ide, 1 byte
+		data = minimig_config.enable_ide ? 0xff : 0; // ide, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 0x01; // a1200, 1 byte
+		data = 0xff; // a1200, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = minimig_config.chipset&CONFIG_AGA ? 1 : 0; // aga, 1 byte
+		data = minimig_config.chipset&CONFIG_AGA ? 0xff : 0; // aga, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 0x01; // insert, 1 byte
+		data = 0xff; // insert, 1 byte
 		spi8((data >> 0) & 0xff);
 		data = 0x0f; // delay, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 0x01; // lview, 1 byte
+		data = 0xff; // lview, 1 byte
 		spi8((data >> 0) & 0xff);
 		data = 0x00; // cd32, 1 byte
 		spi8((data >> 0) & 0xff);
 		data = minimig_config.chipset&CONFIG_NTSC ? 1 : 0; // screenmode, 1 byte
 		spi8((data >> 0) & 0xff);
-		data = 1; // novbr, 1 byte
+		data = 0xff; // novbr, 1 byte
 		spi8((data >> 0) & 0xff);
 		data = 0; // entered, 1 byte
 		spi8((data >> 0) & 0xff);
@@ -362,7 +362,7 @@ static void ApplyConfiguration(char reloadkickstart)
 	rstval = 0;
 	spi_uio_cmd8(UIO_MM2_RST, rstval);
 
-	minimig_ConfigVideo(minimig_config.filter.hires, minimig_config.filter.lores, minimig_config.scanlines);
+	minimig_ConfigVideo(minimig_config.scanlines);
 	minimig_ConfigAudio(minimig_config.audio);
 	minimig_ConfigAutofire(minimig_config.autofire, 0xC);
 }
@@ -626,9 +626,9 @@ char minimig_get_adjust()
 	return minimig_adjust;
 }
 
-void minimig_ConfigVideo(unsigned char hires, unsigned char lores, unsigned char scanlines)
+void minimig_ConfigVideo(unsigned char scanlines)
 {
-	spi_uio_cmd16(UIO_MM2_VID, (((scanlines >> 6) & 0x03) << 10) | (((scanlines >> 4) & 0x03) << 8) | (((scanlines >> 2) & 0x03) << 6) | ((hires & 0x03) << 4) | ((lores & 0x03) << 2) | (scanlines & 0x03));
+	spi_uio_cmd16(UIO_MM2_VID, (((scanlines >> 6) & 0x03) << 10) | (((scanlines >> 4) & 0x03) << 8) | (scanlines & 0x07));
 }
 
 void minimig_ConfigAudio(unsigned char audio)
@@ -643,7 +643,7 @@ void minimig_ConfigMemory(unsigned char memory)
 
 void minimig_ConfigCPU(unsigned char cpu)
 {
-	spi_uio_cmd8(UIO_MM2_CPU, cpu & 0x0f);
+	spi_uio_cmd8(UIO_MM2_CPU, cpu & 0x1f);
 }
 
 void minimig_ConfigChipset(unsigned char chipset)
