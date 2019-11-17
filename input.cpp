@@ -1256,7 +1256,7 @@ void finish_map_setting(int dismiss)
 	{
 		for (int i = 0; i < NUMDEV; i++) input[i].has_map = 0;
 
-		if (!dismiss) FileSaveConfig(get_map_name(mapping_dev, 0), &input[mapping_dev].map, sizeof(input[mapping_dev].map));
+		if (!dismiss) FileSaveJoymap(get_map_name(mapping_dev, 0), &input[mapping_dev].map, sizeof(input[mapping_dev].map));
 		if (is_menu_core()) input[mapping_dev].has_mmap = 0;
 	}
 }
@@ -1709,6 +1709,8 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	//check if device is a part of multifunctional device
 	if (input[dev].bind >= 0) dev = input[dev].bind;
 
+	if (ev->type == EV_KEY && !ev->code) return;
+
 	//mouse
 	if (ev->type == EV_KEY && ev->code >= BTN_MOUSE && ev->code < BTN_JOYSTICK)
 	{
@@ -1727,7 +1729,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	if (!input[dev].has_mmap)
 	{
-		if (!FileLoadConfig(get_map_name(dev, 1), &input[dev].mmap, sizeof(input[dev].mmap)))
+		if (!FileLoadJoymap(get_map_name(dev, 1), &input[dev].mmap, sizeof(input[dev].mmap)))
 		{
 			memset(input[dev].mmap, 0, sizeof(input[dev].mmap));
 			input[dev].has_mmap++;
@@ -1738,7 +1740,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	if (!input[dev].has_map)
 	{
-		if (!FileLoadConfig(get_map_name(dev, 0), &input[dev].map, sizeof(input[dev].map)))
+		if (!FileLoadJoymap(get_map_name(dev, 0), &input[dev].map, sizeof(input[dev].map)))
 		{
 			memset(input[dev].map, 0, sizeof(input[dev].map));
 			if (!is_menu_core())
@@ -1760,16 +1762,19 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	int old_combo = input[dev].osd_combo;
 
-	if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2])
+	if (ev->type == EV_KEY)
 	{
-		if (ev->value) input[dev].osd_combo |= 2;
-		else input[dev].osd_combo &= ~2;
-	}
+		if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2])
+		{
+			if (ev->value) input[dev].osd_combo |= 2;
+			else input[dev].osd_combo &= ~2;
+		}
 
-	if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1])
-	{
-		if (ev->value) input[dev].osd_combo |= 1;
-		else input[dev].osd_combo &= ~1;
+		if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1])
+		{
+			if (ev->value) input[dev].osd_combo |= 1;
+			else input[dev].osd_combo &= ~1;
+		}
 	}
 
 	int osd_event = 0;
@@ -2596,7 +2601,8 @@ int input_test(int getchar)
 						}
 
 						// Raphnet devices: clear uniq to prevent merging the ports
-						if (input[n].vid == 0x289b)
+						// bliss-box adapters need this as well
+						if (input[n].vid == 0x289b || input[n].vid == 0x16d0)
 						{
 							memset(input[n].uniq, 0, sizeof(input[n].uniq));
 						}
