@@ -42,6 +42,21 @@ static int iFirstEntry = 0;
 
 static char full_path[2100];
 
+fileTYPE::fileTYPE()
+{
+	filp = 0;
+	mode = 0;
+	type = 0;
+	zip = 0;
+	size = 0;
+	offset = 0;
+}
+
+int fileTYPE::opened()
+{
+	return filp || zip;
+}
+
 struct fileZipArchive
 {
 	mz_zip_archive                    archive;
@@ -200,7 +215,6 @@ void FileClose(fileTYPE *file)
 		mz_zip_reader_end(&file->zip->archive);
 
 		delete file->zip;
-		file->zip = nullptr;
 	}
 
 	if (file->filp)
@@ -216,6 +230,8 @@ void FileClose(fileTYPE *file)
 			file->type = 0;
 		}
 	}
+
+	file->zip = nullptr;
 	file->filp = nullptr;
 }
 
@@ -553,40 +569,13 @@ int FileSaveJoymap(const char *name, void *pBuffer, int size)
 
 int FileLoad(const char *name, void *pBuffer, int size)
 {
-	if (name[0] != '/') sprintf(full_path, "%s/%s", getRootDir(), name);
-	else strcpy(full_path, name);
+	fileTYPE f;
+	if (!FileOpen(&f, name)) return 0;
 
-	int fd = open(full_path, O_RDONLY);
-	if (fd < 0)
-	{
-		printf("FileLoad(open) File:%s, error: %d.\n", full_path, fd);
-		return 0;
-	}
+	int ret = f.size;
+	if (size) ret = FileReadAdv(&f, pBuffer, size);
 
-	struct stat64 st;
-	int ret = fstat64(fd, &st);
-	if (ret < 0)
-	{
-		printf("FileLoad(fstat) File:%s, error: %d.\n", full_path, ret);
-		close(fd);
-		return 0;
-	}
-
-	if (!pBuffer)
-	{
-		close(fd);
-		return (int)st.st_size;
-	}
-
-	ret = read(fd, pBuffer, size ? size : st.st_size);
-	close(fd);
-
-	if (ret < 0)
-	{
-		printf("FileLoad(read) File:%s, error: %d.\n", full_path, ret);
-		return 0;
-	}
-
+	FileClose(&f);
 	return ret;
 }
 
@@ -714,13 +703,53 @@ uint32_t getFileType(const char *name)
 
 void prefixGameDir(char *dir, size_t dir_len)
 {
+	// Searches for the core's folder in the following order:
+	// /media/fat
+	// /media/usb<0..5>
+	// /media/usb<0..5>/games
+	// /media/fat/cifs
+	// /media/fat/cifs/games
+	// /media/fat/games/
+	// if the core folder is not found anywhere,
+	// it will be created in /media/fat/games/<dir>
 	if (isPathDirectory(dir)) {
 		printf("Found existing: %s\n", dir);
 		return;
 	}
 
-	FileCreatePath((char *) GAMES_DIR);
 	static char temp_dir[1024];
+
+	for (int x = 0; x < 6; x++) {
+		snprintf(temp_dir, 1024, "%s%d/%s", "../usb", x, dir);
+		if (isPathDirectory(temp_dir)) {
+			printf("Found USB dir: %s\n", temp_dir);
+			strncpy(dir, temp_dir, dir_len);
+			return;
+		}
+
+		snprintf(temp_dir, 1024, "%s%d/%s/%s", "../usb", x, GAMES_DIR, dir);
+		if (isPathDirectory(temp_dir)) {
+			printf("Found USB dir: %s\n", temp_dir);
+			strncpy(dir, temp_dir, dir_len);
+			return;
+		}
+	}
+
+	snprintf(temp_dir, 1024, "%s/%s", CIFS_DIR, dir);
+	if (isPathDirectory(temp_dir)) {
+		printf("Found CIFS dir: %s\n", temp_dir);
+		strncpy(dir, temp_dir, dir_len);
+		return;
+	}
+
+	snprintf(temp_dir, 1024, "%s/%s/%s", CIFS_DIR, GAMES_DIR, dir);
+	if (isPathDirectory(temp_dir)) {
+		printf("Found CIFS dir: %s\n", temp_dir);
+		strncpy(dir, temp_dir, dir_len);
+		return;
+	}
+
+	FileCreatePath((char *) GAMES_DIR);
 	snprintf(temp_dir, 1024, "%s/%s", GAMES_DIR, dir);
 	strncpy(dir, temp_dir, dir_len);
 	printf("Prefixed dir to %s\n", temp_dir);
@@ -894,10 +923,13 @@ struct DirentComp
 {
 	bool operator()(const direntext_t& de1, const direntext_t& de2)
 	{
+
+#ifdef USE_SCHEDULER
 		if (++iterations % YieldIterations == 0)
 		{
 			scheduler_yield();
 		}
+#endif
 
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "..")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
@@ -1046,11 +1078,12 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		for (size_t i = 0; (d && (de = readdir(d)))
 				 || (z && i < mz_zip_reader_get_num_files(z)); i++)
 		{
+#ifdef USE_SCHEDULER
 			if (0 < i && i % YieldIterations == 0)
 			{
 				scheduler_yield();
 			}
-
+#endif
 			struct dirent _de = {};
 			if (z) {
 				mz_zip_reader_get_filename(z, i, &_de.d_name[0], sizeof(_de.d_name));

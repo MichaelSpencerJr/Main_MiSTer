@@ -294,6 +294,13 @@ char is_minimig()
 	return (is_minimig_type == 1);
 }
 
+static int is_megacd_type = 0;
+char is_megacd_core()
+{
+	if (!is_megacd_type) is_megacd_type = strcasecmp(core_name, "MEGACD") ? 2 : 1;
+	return (is_megacd_type == 1);
+}
+
 static int is_no_type = 0;
 static int disable_osd = 0;
 char has_menu()
@@ -317,7 +324,7 @@ static void user_io_read_core_name()
 	core_name[0] = 0;
 
 	// get core name
-	char *p = user_io_8bit_get_string(0);
+	char *p = user_io_get_confstr(0);
 	if (p && p[0]) strcpy(core_name, p);
 
 	strncpy(core_dir, !strcasecmp(p, "minimig") ? "Amiga" : core_name, 1024);
@@ -410,7 +417,7 @@ static void parse_config()
 	joy_force = 0;
 
 	do {
-		p = user_io_8bit_get_string(i);
+		p = user_io_get_confstr(i);
 		printf("get cfgstring %d = %s\n", i, p);
 		if (!i && p && p[0])
 		{
@@ -718,6 +725,7 @@ void user_io_init(const char *path)
 	spi_init(core_type != CORE_TYPE_UNKNOWN);
 	OsdSetSize(8);
 
+	user_io_read_confstr();
 	if (core_type == CORE_TYPE_8BIT)
 	{
 		puts("Identified 8BIT core");
@@ -1570,6 +1578,31 @@ static void check_status_change()
 	}
 }
 
+static char pchar[] = { 0x8C, 0x8F, 0x7F };
+
+#define PROGRESS_CNT    28
+#define PROGRESS_CHARS  (sizeof(pchar)/sizeof(pchar[0]))
+#define PROGRESS_MAX    ((PROGRESS_CHARS*PROGRESS_CNT)-1)
+
+static void tx_progress(const char* name, unsigned int progress)
+{
+	static char progress_buf[128];
+	memset(progress_buf, 0, sizeof(progress_buf));
+
+	if (progress > PROGRESS_MAX) progress = PROGRESS_MAX;
+	char c = pchar[progress % PROGRESS_CHARS];
+	progress /= PROGRESS_CHARS;
+
+	char *buf = progress_buf;
+	sprintf(buf, "\n\n %.27s\n ", name);
+	buf += strlen(buf);
+
+	for (unsigned int i = 0; i <= progress; i++) buf[i] = (i < progress) ? 0x7F : c;
+	buf[PROGRESS_CNT] = 0;
+
+	InfoMessage(progress_buf, 2000, "Loading");
+}
+
 int user_io_file_tx(const char* name, unsigned char index, char opensave, char mute, char composite)
 {
 	fileTYPE f = {};
@@ -1631,10 +1664,13 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 	file_crc = 0;
 	uint32_t skip = bytes2send & 0x3FF; // skip possible header up to 1023 bytes
 
+	int use_progress = 1; // (bytes2send > (1024 * 1024)) ? 1 : 0;
+	int size = bytes2send;
+	int progress = -1;
+	if (use_progress) MenuHide();
+
 	while (bytes2send)
 	{
-		printf(".");
-
 		uint16_t chunk = (bytes2send > sizeof(buf)) ? sizeof(buf) : bytes2send;
 
 		FileReadAdv(&f, buf, chunk);
@@ -1644,6 +1680,15 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 		spi_write(buf, chunk, fio_size);
 		DisableFpga();
 
+		if (use_progress)
+		{
+			int new_progress = PROGRESS_MAX - ((((uint64_t)bytes2send)*PROGRESS_MAX) / size);
+			if (progress != new_progress)
+			{
+				progress = new_progress;
+				tx_progress(f.name, progress);
+			}
+		}
 		bytes2send -= chunk;
 
 		if (skip >= chunk) skip -= chunk;
@@ -1657,7 +1702,7 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 	// check if core requests some change while downloading
 	check_status_change();
 
-	printf("\n");
+	printf("Done.\n");
 	printf("CRC32: %08X\n", file_crc);
 
 	FileClose(&f);
@@ -1683,53 +1728,53 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 	return 1;
 }
 
-// 8 bit cores have a config string telling the firmware how
-// to treat it
-char *user_io_8bit_get_string(char index)
+static char cfgstr[1024 * 10] = {};
+void user_io_read_confstr()
+{
+	spi_uio_cmd_cont(UIO_GET_STRING);
+
+	uint32_t j = 0;
+	while (j < sizeof(cfgstr) - 1)
+	{
+		char i = spi_in();
+		if (!i) break;
+		cfgstr[j++] = i;
+	}
+
+	cfgstr[j++] = 0;
+	DisableIO();
+}
+
+char *user_io_get_confstr(int index)
 {
 	unsigned char i, lidx = 0, j = 0;
 	static char buffer[128 + 1];  // max 128 bytes per config item
-
 								  // clear buffer
 	buffer[0] = 0;
+	int pos = 0;
 
-	spi_uio_cmd_cont(UIO_GET_STRING);
-	i = spi_in();
-	// the first char returned will be 0xff if the core doesn't support
-	// config strings. atari 800 returns 0xa4 which is the status byte
-	if ((i == 0xff) || (i == 0xa4))
+	i = cfgstr[pos++];
+	while (i && (j < sizeof(buffer)))
 	{
-		DisableIO();
-		return NULL;
-	}
-
-	//  printf("String: ");
-	while ((i != 0) && (i != 0xff) && (j<sizeof(buffer)))
-	{
-		if (i == ';') {
+		if (i == ';')
+		{
 			if (lidx == index) buffer[j++] = 0;
 			lidx++;
 		}
-		else {
-			if (lidx == index)
-				buffer[j++] = i;
+		else
+		{
+			if (lidx == index) buffer[j++] = i;
 		}
 
-		//  printf("%c", i);
-		i = spi_in();
+		i = cfgstr[pos++];
 	}
-
-	DisableIO();
-	//  printf("\n");
 
 	// if this was the last string in the config string list, then it still
 	// needs to be terminated
 	if (lidx == index) buffer[j] = 0;
 
 	// also return NULL for empty strings
-	if (!buffer[0]) return NULL;
-
-	return buffer;
+	return buffer[0] ? buffer : NULL;
 }
 
 uint32_t user_io_8bit_set_status(uint32_t new_status, uint32_t mask, int ex)
@@ -1816,14 +1861,12 @@ void user_io_send_buttons(char force)
 			fpga_load_rbf(name);
 		}
 
-		if (is_archie() && (key_map & BUTTON2) && !(map & BUTTON2))
+		//special reset for some cores
+		if ((key_map & BUTTON2) && !(map & BUTTON2))
 		{
-			fpga_load_rbf(name[0] ? name : "Archie.rbf");
-		}
-
-		if (is_minimig() && (key_map & BUTTON2) && !(map & BUTTON2))
-		{
-			minimig_reset();
+			if (is_archie()) fpga_load_rbf(name[0] ? name : "Archie.rbf");
+			if (is_minimig()) minimig_reset();
+			if (is_megacd_core()) mcd_reset();
 		}
 
 		key_map = map;
@@ -2475,7 +2518,7 @@ void user_io_poll()
 
 						//Even after error we have to provide the block to the core
 						//Give an empty block.
-						if (!done) memset(buffer[disk], 0, sizeof(buffer[disk]));
+						if (!done) memset(buffer[disk], (sd_image[disk].type == 2) ? -1 : 0, sizeof(buffer[disk]));
 						buffer_lba[disk] = lba;
 					}
 
@@ -2835,6 +2878,8 @@ void user_io_poll()
 		fpga_set_led(0);
 		diskled_is_on = 0;
 	}
+
+	if (is_megacd_core()) mcd_poll();
 }
 
 static void send_keycode(unsigned short key, int press)
