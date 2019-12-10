@@ -4311,7 +4311,7 @@ void HandleUI(void)
 	case MENU_SYSTEM_GENERAL:
 	{
 		helptext = helptexts[HELPTEXT_NONE];
-		menumask = 127;
+		menumask = 511;
 		parentstate = menustate;
 		menustate = MENU_SYSTEM_GENERAL1;
 
@@ -4338,9 +4338,9 @@ void HandleUI(void)
 		strcpy(s, " CPU Boot Screen:");
 		strcat(s, config_cpu_boot_screen_msg[minimig_config.audio & 3]);
 		OsdWrite(m++, s, menusub == 7, 0);
-		while (m < 15) OsdWrite(m++);
-		OsdWrite(15, " Save Configuration           ", menusub == 7, 0);
-		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 11, 0);
+		//while (m < 15) OsdWrite(m++);
+		//OsdWrite(15, " Save Configuration           ", menusub == 7, 0);
+		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 8, 0);
 	}
 	break;
 
@@ -4495,7 +4495,7 @@ void HandleUI(void)
 	case MENU_SYSTEM_UI:
 	{
 		helptext = helptexts[HELPTEXT_NONE];
-		menumask = 31;
+		menumask = 63;
 		parentstate = menustate;
 		menustate = MENU_SYSTEM_UI1;
 
@@ -4517,7 +4517,7 @@ void HandleUI(void)
 		strcat(s, config_hide_core_datecode_msg[minimig_config.audio & 3]);
 		OsdWrite(m++, s, menusub == 4, 0);
 		while (m < 15) OsdWrite(m++);
-		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 11, 0);
+		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 5, 0);
 	}
 	break;
 
@@ -4560,7 +4560,7 @@ void HandleUI(void)
 	case MENU_SYSTEM_AUDIO:
 	{
 		helptext = helptexts[HELPTEXT_NONE];
-		menumask = 3;
+		menumask = 7;
 		parentstate = menustate;
 		menustate = MENU_SYSTEM_AUDIO1;
 
@@ -4761,7 +4761,7 @@ void HandleUI(void)
 	case MENU_SYSTEM_NETWORK:
 	{
 		helptext = helptexts[HELPTEXT_NONE];
-		menumask = 4095;
+		menumask = 1023;
 		parentstate = menustate;
 		menustate = MENU_SYSTEM_NETWORK1;
 
@@ -4810,7 +4810,7 @@ void HandleUI(void)
 			if (j < 2) infowrite(m++, "");}
 		//OsdWrite(13, "   Wi-Fi IP: XXX.XXX.XXX.XXX   ");
 		//OsdWrite(14, "   Wired IP: XXX.XXX.XXX.XXX   ");
-		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 11, 0);
+		OsdWrite(OsdGetSize() - 1, STD_APPLY, menusub == 9, 0);
 	}
 	break;
 
