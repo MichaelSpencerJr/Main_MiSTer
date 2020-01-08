@@ -1260,6 +1260,7 @@ void HandleUI(void)
 				fs_Options = SCANO_DIR | SCANO_UMOUNT;
 				fs_MenuSelect = MENU_ARCHIE_MAIN_FILE_SELECTED;
 				fs_MenuCancel = MENU_ARCHIE_MAIN1;
+				strcpy(fs_pFileExt, "ADF");
 				if (recent_init(500)) menustate = MENU_RECENT1;
 			}
 		}
@@ -1650,6 +1651,7 @@ void HandleUI(void)
 						fs_Options = SCANO_DIR | (is_neogeo_core() ? SCANO_NEOGEO | SCANO_NOENTER : 0);
 						fs_MenuSelect = MENU_8BIT_MAIN_FILE_SELECTED;
 						fs_MenuCancel = MENU_8BIT_MAIN1;
+						strcpy(fs_pFileExt, ext);
 
 						if (select) SelectFile(ext, fs_Options, fs_MenuSelect, fs_MenuCancel);
 						else if(recent_init(ioctl_index)) menustate = MENU_RECENT1;
@@ -1664,6 +1666,7 @@ void HandleUI(void)
 						fs_Options = SCANO_DIR | SCANO_UMOUNT;
 						fs_MenuSelect = MENU_8BIT_MAIN_IMAGE_SELECTED;
 						fs_MenuCancel = MENU_8BIT_MAIN1;
+						strcpy(fs_pFileExt, ext);
 
 						if (select) SelectFile(ext, fs_Options, fs_MenuSelect, fs_MenuCancel);
 						else if(recent_init(ioctl_index + 500)) menustate = MENU_RECENT1;
@@ -1911,6 +1914,16 @@ void HandleUI(void)
                     break;
             };
         }
+
+		if (recent && menusub == 0)
+		{
+			fs_Options = SCANO_CORES;
+			fs_MenuSelect = MENU_CORE_FILE_SELECTED1;
+			fs_MenuCancel = MENU_8BIT_SYSTEM1;
+
+			if (recent_init(-1)) menustate = MENU_RECENT1;
+			break;
+		}
 
 		if (select)
 		{
@@ -3310,6 +3323,7 @@ void HandleUI(void)
 					fs_Options = SCANO_DIR;
 					fs_MenuSelect = MENU_FILE_SELECTED;
 					fs_MenuCancel = MENU_MAIN1;
+					strcpy(fs_pFileExt, "ADF");
 					if(select) SelectFile("ADF", fs_Options, fs_MenuSelect, fs_MenuCancel);
 					else if (recent_init(0)) menustate = MENU_RECENT1;
 				}
@@ -3498,7 +3512,7 @@ void HandleUI(void)
 			menustate = fs_MenuCancel;
 		}
 
-		if (recent && recent_init((fs_Options & SCANO_UMOUNT) ? ioctl_index + 500 : ioctl_index))
+		if (recent && recent_init((fs_Options & SCANO_CORES) ? -1 : (fs_Options & SCANO_UMOUNT) ? ioctl_index + 500 : ioctl_index))
 		{
 			menustate = MENU_RECENT1;
 		}
@@ -3590,6 +3604,13 @@ void HandleUI(void)
 							strcat(SelectedPath, "/");
 						}
 						strcpy(SelectedLabel, flist_SelectedItem()->altname);
+						if (fs_Options & SCANO_CORES)
+						{
+							int len = strlen(SelectedLabel);
+							if (SelectedLabel[len - 4] == '.') SelectedLabel[len - 4] = 0;
+							char *p = strstr(SelectedLabel, "_20");
+							if (p) *p = 0;
+						}
 						strcat(SelectedPath, name);
 						menustate = fs_MenuSelect;
 					}
@@ -3671,7 +3692,7 @@ void HandleUI(void)
 		/******************************************************************/
 	case MENU_RECENT1:
 		helptext = helptexts[HELPTEXT_NONE];
-		OsdSetTitle("Recent Files");
+		OsdSetTitle((fs_Options & SCANO_CORES) ? "Recent Cores" : "Recent Files");
 		recent_print();
 		menustate = MENU_RECENT2;
 		parentstate = menustate;
@@ -3683,6 +3704,7 @@ void HandleUI(void)
 		if (menu || recent)
 		{
 			menustate = fs_MenuCancel;
+			if (is_menu_core()) menustate = MENU_FILE_SELECT1;
 			break;
 		}
 
@@ -3718,8 +3740,9 @@ void HandleUI(void)
 			OsdWrite(OsdGetSize() / 2, "    Clearing the recents", 0, 0);
 			OsdUpdate();
 			sleep(1);
-			recent_clear((fs_Options & SCANO_UMOUNT) ? ioctl_index + 500 : ioctl_index);
+			recent_clear((fs_Options & SCANO_CORES) ? -1 : (fs_Options & SCANO_UMOUNT) ? ioctl_index + 500 : ioctl_index);
 			menustate = fs_MenuCancel;
+			if (is_menu_core()) menustate = MENU_FILE_SELECT1;
 			break;
 		}
 
@@ -4190,6 +4213,7 @@ void HandleUI(void)
 					fs_Options = SCANO_DIR | SCANO_UMOUNT;
 					fs_MenuSelect = MENU_HARDFILE_SELECTED;
 					fs_MenuCancel = MENU_SETTINGS_HARDFILE1;
+					strcpy(fs_pFileExt, "HDFVHDIMGDSK");
 					if (select) SelectFile("HDFVHDIMGDSK", fs_Options, fs_MenuSelect, fs_MenuCancel);
 					else if (recent_init(500)) menustate = MENU_RECENT1;
 				}
@@ -5660,6 +5684,7 @@ void HandleUI(void)
 		break;
 
 	case MENU_CORE_FILE_SELECTED1:
+		recent_update(SelectedDir, SelectedPath, SelectedLabel, -1);
 		menustate = MENU_NONE1;
 		strcpy(SelectedRBF, SelectedPath);
 		if (!getStorage(0)) // multiboot is only on SD card.
@@ -5816,86 +5841,35 @@ void open_joystick_setup()
 	joymap_first = 1;
 }
 
-
-/*
- * CalculateFileNameLengthWithoutExtension
- *
- * This function takes a filename and length, and returns
- * the length. It will remove the .rbf or .mra from the length
- * based on the fs_pFileExt global
- *
- * If the fs_pFileExt has multiple extensions, it will look through
- * each to try to find a match.
- */
-int CalculateFileNameLengthWithoutExtension(char *name, char *possibleextensions)
+static int calc_name_length(const char *name, const char *ext, const char **datecode)
 {
-	char *ext = possibleextensions;
-	int found = 0;
-	/* the default length is the whole string */
+	*datecode = 0;
+
 	int len = strlen(name);
+	int rbf = (len > 4 && !strcasecmp(name + len - 4, ".rbf"));
+	if (rbf)
+	{
+		len -= 4;
+
+		const char *p = strstr(name, "_20");
+		if (p)
+		{
+			len = p - name;
+			p += 3;
+			if (strlen(p) < 6) p = 0;
+		}
+
+		*datecode = (p) ? p : "------";
+		return len;
+	}
 
 	//do not remove ext if core supplies more than 1 extension and it's not list of cores
 	if (strlen(ext) > 3 && strcasecmp(ext, "RBFMRA")) return len;
 
 	/* find the extension on the end of the name*/
-	char *fext = strrchr(name, '.');
-	/* we want to push past the period - and just have rbf instead of .rbf*/
-	if (fext) fext++;
-
-	/* walk through each extension and see if it matches */
-	while (!found && *ext && fext)
-	{
-		char e[4];
-		memcpy(e, ext, 3);
-		if (e[2] == ' ')
-		{
-			e[2] = 0;
-			if (e[1] == ' ') e[1] = 0;
-		}
-
-		e[3] = 0;
-		found = 1;
-		for (int i = 0; i < 4; i++)
-		{
-			if (e[i] == '*') break;
-			if (e[i] == '?' && fext[i]) continue;
-
-			if (tolower(e[i]) != tolower(fext[i])) found = 0;
-
-			if (!e[i] || !found) break;
-		}
-		if (found) break;
-
-		if (strlen(ext) < 3) break;
-		ext += 3;
-	}
-
-	/* if we haven't found a match, then the answer is the full length of the string */
-	if (!found) return len;
-
-	/* we have a match, now we need to handle extensions that are less than 3 characters */
-	char e[5];
-	memcpy(e + 1, ext, 3);
-	/* 0x20 is a space in ascii*/
-	if (e[3] == 0x20)
-	{
-		e[3] = 0;
-		if (e[2] == 0x20)
-		{
-			e[2] = 0;
-		}
-	}
-	e[0] = '.';
-	e[4] = 0;
-	int l = strlen(e);
-
-	if ((len > l) && !strncasecmp(name + len - l, e, l)) len -= l;
-
-	//printf("len: %d l: %d str[%s] e[%s] ext[%s]\n",len,l,name,e,ext);
-	return len;
-
+	const char *fext = strrchr(name, '.');
+	return fext ? fext - name : len;
 }
-
 
 void ScrollLongName(void)
 {
@@ -5906,12 +5880,6 @@ void ScrollLongName(void)
 	int max_len;
 
 	len = strlen(flist_SelectedItem()->altname); // get name length
-	int rbf = (len > 4 && !strcasecmp(flist_SelectedItem()->altname + len - 4, ".rbf"));
-
-	if (flist_SelectedItem()->de.d_type == DT_REG) // if a file
-	{
-		len=CalculateFileNameLengthWithoutExtension(flist_SelectedItem()->altname,fs_pFileExt);
-	}
 
 	max_len = 30; // number of file name characters to display (one more required for scrolling)
 	if (flist_SelectedItem()->de.d_type == DT_DIR)
@@ -5919,35 +5887,28 @@ void ScrollLongName(void)
 		max_len = 25; // number of directory name characters to display
 	}
 
-	// if we are in a core, we might need to resize for the fixed date string at the end
-	if (!cfg.rbf_hide_datecode && (fs_Options & SCANO_CORES) && rbf)
+	if (flist_SelectedItem()->de.d_type != DT_DIR) // if a file
 	{
-		if (len > 9 && !strncmp(flist_SelectedItem()->altname + len - 9, "_20", 3))
+		const char *datecode;
+		len = calc_name_length(flist_SelectedItem()->altname, fs_pFileExt, &datecode);
+		if (!cfg.rbf_hide_datecode && datecode)
 		{
-			len -= 9;
+			max_len = 20; // __.__.__ remove that from the end
 		}
-		max_len = 20; // __.__.__ remove that from the end
 	}
 
-	//printf("ScrollLongName: len %d max_len %d [%s]\n",len,max_len,flist_SelectedItem()->altname);
 	ScrollText(flist_iSelectedEntry()-flist_iFirstEntry(), flist_SelectedItem()->altname, 0, len, max_len, 1);
 }
 
 void PrintFileName(char *name, int row, int maxinv)
 {
-	int len;
-
 	char s[40];
+
+	memset(s, ' ', 32); // clear line buffer
 	s[32] = 0; // set temporary string length to OSD line length
 
-	len = strlen(name); // get name length
-	memset(s, ' ', 32); // clear line buffer
-	char *p = 0;
-	if ((fs_Options & SCANO_CORES) && len > 9 && !strncmp(name + len - 9, "_20", 3))
-	{
-		p = name + len - 6;
-		len -= 9;
-	}
+	const char *datecode;
+	int len = calc_name_length(name, "", &datecode);
 
 	if (len > 28)
 	{
@@ -5956,29 +5917,21 @@ void PrintFileName(char *name, int row, int maxinv)
 	}
 	strncpy(s + 1, name, len); // display only name
 
-	if (!cfg.rbf_hide_datecode && (fs_Options & SCANO_CORES))
+	if (!cfg.rbf_hide_datecode && datecode)
 	{
-		if (p)
-		{
-			int n = 19;
-			s[n++] = ' ';
-			s[n++] = p[0];
-			s[n++] = p[1];
-			s[n++] = '.';
-			s[n++] = p[2];
-			s[n++] = p[3];
-			s[n++] = '.';
-			s[n++] = p[4];
-			s[n++] = p[5];
-		}
-		else
-		{
-			strcpy(&s[19], " --.--.--");
-		}
+		int n = 19;
+		s[n++] = ' ';
+		s[n++] = datecode[0];
+		s[n++] = datecode[1];
+		s[n++] = '.';
+		s[n++] = datecode[2];
+		s[n++] = datecode[3];
+		s[n++] = '.';
+		s[n++] = datecode[4];
+		s[n++] = datecode[5];
 	}
 
 	OsdWrite(row, s, 1, 0, 0, maxinv);
-
 }
 
 // print directory contents
@@ -5988,31 +5941,23 @@ void PrintDirectory(void)
 	int len;
 
 	char s[40];
-	s[32] = 0; // set temporary string length to OSD line length
-
 	ScrollReset();
 
 	for(int i = 0; i < OsdGetSize(); i++)
 	{
 		char leftchar = 0;
 		memset(s, ' ', 32); // clear line buffer
+		s[32] = 0;
+
 		if (i < flist_nDirEntries())
 		{
 			k = flist_iFirstEntry() + i;
-
 			len = strlen(flist_DirItem(k)->altname); // get name length
-			int rbf = (len > 4 && !strcasecmp(flist_DirItem(k)->altname + len - 4, ".rbf"));
 
-			if (!(flist_DirItem(k)->de.d_type == DT_DIR)) // if a file
+			const char *datecode = 0;
+			if (flist_DirItem(k)->de.d_type != DT_DIR) // if a file
 			{
-				len=CalculateFileNameLengthWithoutExtension(flist_DirItem(k)->altname,fs_pFileExt);
-			}
-
-			char *p = 0;
-			if ((fs_Options & SCANO_CORES) && len > 9 && !strncmp(flist_DirItem(k)->altname + len - 9, "_20", 3))
-			{
-				p = flist_DirItem(k)->altname + len - 6;
-				len -= 9;
+				len = calc_name_length(flist_DirItem(k)->altname, fs_pFileExt, &datecode);
 			}
 
 			if (len > 28)
@@ -6041,25 +5986,18 @@ void PrintDirectory(void)
 					strcpy(&s[22], " <DIR>");
 				}
 			}
-			else if (!cfg.rbf_hide_datecode && (fs_Options & SCANO_CORES) && rbf)
+			else if (!cfg.rbf_hide_datecode && datecode)
 			{
-				if (p)
-				{
-					int n = 19;
-					s[n++] = ' ';
-					s[n++] = p[0];
-					s[n++] = p[1];
-					s[n++] = '.';
-					s[n++] = p[2];
-					s[n++] = p[3];
-					s[n++] = '.';
-					s[n++] = p[4];
-					s[n++] = p[5];
-				}
-				else
-				{
-					strcpy(&s[19], " --.--.--");
-				}
+				int n = 19;
+				s[n++] = ' ';
+				s[n++] = datecode[0];
+				s[n++] = datecode[1];
+				s[n++] = '.';
+				s[n++] = datecode[2];
+				s[n++] = datecode[3];
+				s[n++] = '.';
+				s[n++] = datecode[4];
+				s[n++] = datecode[5];
 
 				if (len >= 19)
 				{
@@ -6079,20 +6017,6 @@ void PrintDirectory(void)
 
 		OsdWriteOffset(i, s, i == (flist_iSelectedEntry() - flist_iFirstEntry()), 0, 0, leftchar);
 	}
-}
-
-void _strncpy(char* pStr1, const char* pStr2, size_t nCount)
-{
-	// customized strncpy() function to fill remaing destination string part with spaces
-
-	while (*pStr2 && nCount)
-	{
-		*pStr1++ = *pStr2++; // copy strings
-		nCount--;
-	}
-
-	while (nCount--)
-		*pStr1++ = ' '; // fill remaining space with spaces
 }
 
 static void set_text(const char *message, unsigned char code)
@@ -6161,7 +6085,7 @@ void Info(const char *message, int timeout, int width, int height, int frame)
 	if (!user_io_osd_is_visible())
 	{
 		OSD_PrintInfo(message, &width, &height, frame);
-		InfoEnable(20, 10, width, height);
+		InfoEnable(20, (cfg.direct_video && get_vga_fb()) ? 30 : 10, width, height);
 		OsdSetSize(16);
 
 		menu_timer = GetTimer(timeout);
