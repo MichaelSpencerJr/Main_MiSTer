@@ -708,6 +708,49 @@ static int xml_scan_rbf(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 	return true;
 }
 
+static int xml_read_setname(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const int n, SAX_Data* sd)
+{
+	(void)(sd);
+	static int insetname = 0;
+
+	switch (evt)
+	{
+	case XML_EVENT_START_DOC:
+		insetname = 0;
+		break;
+
+	case XML_EVENT_START_NODE:
+
+		/* on the beginning of a rom tag, we need to reset the state*/
+		if (!strcasecmp(node->tag, "setname"))
+		{
+			insetname = 1;
+		}
+		break;
+
+	case XML_EVENT_TEXT:
+		if(insetname) user_io_name_override(text);
+		break;
+
+	case XML_EVENT_END_NODE:
+		if (!strcasecmp(node->tag, "setname"))
+		{
+			insetname = 0;
+			return false;
+		}
+		break;
+
+	case XML_EVENT_ERROR:
+		printf("XML parse: %s: ERROR %d\n", text, n);
+		break;
+	default:
+		break;
+	}
+
+	return true;
+}
+
+
 static int arcade_type = 0;
 int is_arcade()
 {
@@ -753,6 +796,15 @@ int arcade_send_rom(const char *xml)
 	return 0;
 }
 
+void arcade_override_name(const char *xml)
+{
+	SAX_Callbacks sax;
+	SAX_Callbacks_init(&sax);
+
+	sax.all_event = xml_read_setname;
+	XMLDoc_parse_file_SAX(xml, &sax, NULL);
+}
+
 void arcade_check_error()
 {
 	if (arcade_error_msg[0] != 0) {
@@ -786,37 +838,41 @@ static const char *get_rbf(const char *xml)
 		return NULL;
 	}
 
-	int found = 0;
 	int len;
+	static char lastfound[256] = {};
 	while ((entry = readdir(dir)) != NULL)
 	{
 		if (entry->d_type != DT_DIR)
 		{
-			char newstring[kBigTextSize];
+			static char newstring[kBigTextSize];
 			//printf("entry name: %s\n",entry->d_name);
 
 			snprintf(newstring, kBigTextSize, "Arcade-%s", rbfname);
 			len = strlen(newstring);
 			if (!strncasecmp(newstring, entry->d_name, len) && (entry->d_name[len] == '.' || entry->d_name[len] == '_'))
 			{
-				found = 1;
-				break;
+				if (!lastfound[0] || strcmp(lastfound, entry->d_name) < 0)
+				{
+					strcpy(lastfound, entry->d_name);
+				}
 			}
 
 			snprintf(newstring, kBigTextSize, "%s", rbfname);
 			len = strlen(newstring);
 			if (!strncasecmp(newstring, entry->d_name, len) && (entry->d_name[len] == '.' || entry->d_name[len] == '_'))
 			{
-				found = 1;
-				break;
+				if (!lastfound[0] || strcmp(lastfound, entry->d_name) < 0)
+				{
+					strcpy(lastfound, entry->d_name);
+				}
 			}
 		}
 	}
 
-	if (found) sprintf(rbfname, "%s/%s", dirname, entry->d_name);
+	if (lastfound[0]) sprintf(rbfname, "%s/%s", dirname, lastfound);
 	closedir(dir);
 
-	return found ? rbfname : NULL;
+	return lastfound[0] ? rbfname : NULL;
 }
 
 int arcade_load(const char *xml)

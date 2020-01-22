@@ -84,9 +84,9 @@ vmode_t vmodes[] =
 
 vmode_t tvmodes[] =
 {
-	{{ 640, 16, 96, 48, 240,  4, 4, 14 }, 12.587 }, //NTSC 15K
+	{{ 640, 30, 60, 70, 240,  4, 4, 14 }, 12.587 }, //NTSC 15K
 	{{ 640, 16, 96, 48, 480,  8, 4, 33 }, 25.175 }, //NTSC 31K
-	{{ 640, 16, 96, 48, 288,  6, 4, 14 }, 12.587 }, //PAL 15K
+	{{ 640, 30, 60, 70, 288,  6, 4, 14 }, 12.587 }, //PAL 15K
 	{{ 640, 16, 96, 48, 576,  2, 4, 42 }, 25.175 }, //PAL 31K
 };
 
@@ -750,7 +750,6 @@ void video_fb_enable(int enable, int n)
 {
 	if (fb_base)
 	{
-		if (cfg.direct_video) set_vga_fb(enable);
 		int res = spi_uio_cmd_cont(UIO_SET_FBUF);
 		if (res)
 		{
@@ -810,6 +809,7 @@ void video_fb_enable(int enable, int n)
 		}
 
 		DisableIO();
+		if (cfg.direct_video) set_vga_fb(enable);
 		if (is_menu_core()) user_io_8bit_set_status((fb_enabled && !fb_num) ? 0x160 : 0, 0x1E0);
 	}
 }
@@ -1250,6 +1250,8 @@ void video_menu_bg(int n, int idle)
 
 			if (*bg)
 			{
+				if (cfg.direct_video && (v_cur.item[5] < 300)) dst_h /= 2;
+
 				imlib_context_set_image(*bg);
 				imlib_blend_image_onto_image(logo, 1,
 					0, 0,         //int source_x, int source_y,

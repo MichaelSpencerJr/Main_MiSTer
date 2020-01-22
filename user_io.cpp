@@ -140,6 +140,12 @@ char *user_io_make_filepath(const char *path, const char *filename)
 	return filepath_store;
 }
 
+static char ovr_name[16 + 1] = {};
+void user_io_name_override(const char* name)
+{
+	snprintf(ovr_name, sizeof(ovr_name), "%s", name);
+}
+
 void user_io_set_core_name(const char *name)
 {
 	strncpy(core_name, name, 17);
@@ -250,6 +256,13 @@ char is_gba_core()
 	return (is_gba_type == 1);
 }
 
+static int is_c64_type = 0;
+char is_c64_core()
+{
+	if (!is_c64_type) is_c64_type = strcasecmp(core_name, "C64") ? 2 : 1;
+	return (is_c64_type == 1);
+}
+
 char is_sharpmz()
 {
 	return(core_type == CORE_TYPE_SHARPMZ);
@@ -281,11 +294,15 @@ static void user_io_read_core_name()
 	core_name[0] = 0;
 
 	// get core name
-	char *p = user_io_get_confstr(0);
-	if (p && p[0]) strcpy(core_name, p);
+	if (ovr_name[0]) strcpy(core_name, ovr_name);
+	else
+	{
+		char *p = user_io_get_confstr(0);
+		if (p && p[0]) strcpy(core_name, p);
+	}
 
-	strncpy(core_dir, !strcasecmp(p, "minimig") ? "Amiga" : core_name, 1024);
-	prefixGameDir(core_dir, 1024);
+	strcpy(core_dir, !strcasecmp(core_name, "minimig") ? "Amiga" : core_name);
+	prefixGameDir(core_dir, sizeof(core_dir));
 
 	printf("Core name is \"%s\"\n", core_name);
 }
@@ -664,6 +681,7 @@ void user_io_init(const char *path, const char *xml)
 	// not the RBF. The RBF will be in arcade, which the user shouldn't
 	// browse
 	strcpy(core_path, xml ? xml : path);
+	if (xml) arcade_override_name(xml);
 
 	memset(sd_image, 0, sizeof(sd_image));
 
@@ -807,7 +825,7 @@ void user_io_init(const char *path, const char *xml)
 							// check for multipart rom
 							for (char i = 0; i < 4; i++)
 							{
-								sprintf(mainpath, "%s/boot%i.rom", user_io_get_core_path(), i);
+								sprintf(mainpath, "%s/boot%d.rom", user_io_get_core_path(), i);
 								user_io_file_tx(mainpath, i << 6);
 							}
 						}
@@ -850,15 +868,35 @@ void user_io_init(const char *path, const char *xml)
 					}
 
 					// check if vhd present
+					for (char i = 0; i < 4; i++)
+					{
+						sprintf(mainpath, "%s/boot%d.vhd", user_io_get_core_path(), i);
+						if (FileExists(mainpath))
+						{
+							user_io_set_index(i << 6);
+							user_io_file_mount(mainpath, i);
+						}
+					}
+
 					sprintf(mainpath, "%s/boot.vhd", user_io_get_core_path());
-					user_io_set_index(0);
-					if (!user_io_file_mount(mainpath))
+					if (FileExists(mainpath))
+					{
+						user_io_set_index(0);
+						user_io_file_mount(mainpath, 0);
+					}
+					else
 					{
 						strcpy(name + strlen(name) - 3, "VHD");
 						sprintf(mainpath, "%s/%s", get_rbf_dir(), name);
-						if (!get_rbf_dir()[0] || !user_io_file_mount(mainpath))
+						if (FileExists(mainpath))
 						{
-							user_io_file_mount(name);
+							user_io_set_index(0);
+							user_io_file_mount(mainpath, 0);
+						}
+						else if (FileExists(name))
+						{
+							user_io_set_index(0);
+							user_io_file_mount(name, 0);
 						}
 					}
 				}
@@ -1173,6 +1211,7 @@ int user_io_file_mount(char *name, unsigned char index, char pre)
 {
 	int writable = 0;
 	int ret = 0;
+	int len = strlen(name);
 
 	if (!strcasecmp(user_io_get_core_name_ex(), "apple-ii"))
 	{
@@ -1184,6 +1223,11 @@ int user_io_file_mount(char *name, unsigned char index, char pre)
 		if (x2trd_ext_supp(name))
 		{
 			ret = x2trd(name, sd_image + index);
+		}
+		else if (is_c64_core() && len > 4 && !strcasecmp(name + len - 4, ".t64"))
+		{
+			writable = 0;
+			ret = c64_openT64(name, sd_image + index);
 		}
 		else
 		{
